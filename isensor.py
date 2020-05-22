@@ -22,8 +22,10 @@ AD_ELEMENT_SHORTNAME = 0x08
 AD_ELEMENT_MANUFACTURER = 0xFF
 
 # Sensor flags
-ISENSOR_ED_OPENFLAG = 0b00000010
-ISENSOR_ED_HEARTBEATFLAG = 0b00001010
+ISENSOR_ED_TAMPER_FLAG = 0b00000001
+ISENSOR_ED_ALARM_FLAG = 0b00000010
+ISENSOR_ED_LOWVOLTAGE_FLAG = 0b00000100
+ISENSOR_ED_HEARTBEAT_FLAG = 0b00001000
 
 if not os.geteuid() == 0:
     sys.exit("script only works as root")
@@ -112,7 +114,12 @@ try:
             data_offset += 2 # Skip header
             field_data = pkt[data_offset:data_offset+field_len]
             if (field_type == AD_ELEMENT_SHORTNAME):
-                shortname = field_data.decode('utf-8').strip()
+                try:
+                    shortname = field_data.decode('utf-8').strip()                
+                except UnicodeDecodeError:
+                    shortname = f"{field_data}"
+                    logging.info(f"[{bdaddr_s}] failed to decode shortname:{shortname}")
+
             elif (field_type == AD_ELEMENT_MANUFACTURER):
                 mdata = field_data
             
@@ -122,10 +129,14 @@ try:
         if (shortname == "iSensor"):
             (fw,d1,d2,d3,tid,ed,cd,checksum) = struct.unpack("BBBBBBBB",mdata[:8])
             if (last_frameid.get(bdaddr_s, 0xFFFF) != cd):
-                sensor_open = (ed & ISENSOR_ED_OPENFLAG == ISENSOR_ED_OPENFLAG)
-                sensor_hbt = (ed & ISENSOR_ED_HEARTBEATFLAG == ISENSOR_ED_HEARTBEATFLAG)
+
+                sensor_open = (ed & ISENSOR_ED_ALARM_FLAG == ISENSOR_ED_ALARM_FLAG)
+                sensor_hbt = (ed & ISENSOR_ED_HEARTBEAT_FLAG == ISENSOR_ED_HEARTBEAT_FLAG)
+                sensor_tampered = (ed & ISENSOR_ED_TAMPER_FLAG == ISENSOR_ED_TAMPER_FLAG)
+                sensor_lowbattery = (ed & ISENSOR_ED_LOWVOLTAGE_FLAG == ISENSOR_ED_LOWVOLTAGE_FLAG)
+
                 logging.debug( f"{shortname}[{bdaddr_s}] fw:{fw} tid:{tid:08b} ed:{ed:08b} cd:{cd:08b} cs{checksum}")
-                logging.info( f"{shortname}[{bdaddr_s}] {'HBT' if sensor_hbt else 'EVT'} {'OPEN' if sensor_open else 'CLOSED'}")
+                logging.info( f"{shortname}[{bdaddr_s}] {'HBT' if sensor_hbt else 'EVT'} {'OPEN' if sensor_open else 'CLOSED'} {'LOW' if sensor_lowbattery else ''} {'!!' if sensor_tampered else ''}")
                 
             last_frameid[bdaddr_s] = cd
         
